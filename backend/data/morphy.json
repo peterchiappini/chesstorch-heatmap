@@ -1,0 +1,7 @@
+{
+  "player": "Morphy",
+  "time_control": "All",
+  "source": "pgnmentor",
+  "games": 211,
+  "description": "OTB tournament games by Morphy, sourced from pgnmentor.com. Includes all recorded tournament games (classical, rapid, and blitz events). 211 games total."
+}

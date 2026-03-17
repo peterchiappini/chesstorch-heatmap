@@ -1,0 +1,7 @@
+{
+  "player": "Capablanca",
+  "time_control": "All",
+  "source": "pgnmentor",
+  "games": 597,
+  "description": "OTB tournament games by Capablanca, sourced from pgnmentor.com. Includes all recorded tournament games (classical, rapid, and blitz events). 597 games total."
+}

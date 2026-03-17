@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+data/*.pgn
+data/*.pt
+data/gm/
+*.pyc
+.lichess-token

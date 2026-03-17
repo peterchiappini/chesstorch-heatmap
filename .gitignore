@@ -22,3 +22,24 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Python
+.venv
+__pycache__
+
+# Data & model artifacts (large files)
+backend/data/*.pgn
+backend/data/*.pt
+backend/data/gm/
+backend/weights/*.pth
+backend/master_games.pgn
+
+# Keep JSON metadata in git
+!backend/data/*.json
+!backend/weights/*.json
+
+# Firebase
+.firebase/
+
+# Secrets
+.lichess-token

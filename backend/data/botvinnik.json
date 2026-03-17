@@ -1,0 +1,7 @@
+{
+  "player": "Botvinnik",
+  "time_control": "All",
+  "source": "pgnmentor",
+  "games": 891,
+  "description": "OTB tournament games by Botvinnik, sourced from pgnmentor.com. Includes all recorded tournament games (classical, rapid, and blitz events). 891 games total."
+}

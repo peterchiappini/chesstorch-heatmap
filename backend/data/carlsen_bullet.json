@@ -1,0 +1,7 @@
+{
+  "player": "Carlsen",
+  "time_control": "Bullet",
+  "source": "chesscom",
+  "games": 2065,
+  "description": "Online bullet games by Carlsen (chess.com account: MagnusCarlsen). Filtered by time control (bullet). Most recent games first. 2,065 games."
+}

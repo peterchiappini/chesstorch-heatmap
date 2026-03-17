@@ -1,0 +1,7 @@
+{
+  "player": "Nakamura",
+  "time_control": "Bullet",
+  "source": "chesscom",
+  "games": 5000,
+  "description": "Online bullet games by Nakamura (chess.com account: Hikaru). Filtered by time control (bullet). Most recent games first. 5,000 games."
+}

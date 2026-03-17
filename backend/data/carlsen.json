@@ -1,0 +1,7 @@
+{
+  "player": "Carlsen",
+  "time_control": "All",
+  "source": "pgnmentor",
+  "games": 7484,
+  "description": "OTB tournament games by Carlsen, sourced from pgnmentor.com. Includes all recorded tournament games (classical, rapid, and blitz events). 7,484 games total."
+}

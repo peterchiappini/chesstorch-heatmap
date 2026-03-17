@@ -1,0 +1,7 @@
+{
+  "player": "Aronian",
+  "time_control": "All",
+  "source": "pgnmentor",
+  "games": 5495,
+  "description": "OTB tournament games by Aronian, sourced from pgnmentor.com. Includes all recorded tournament games (classical, rapid, and blitz events). 5,495 games total."
+}

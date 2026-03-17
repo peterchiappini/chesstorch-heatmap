@@ -1,0 +1,7 @@
+{
+  "player": "Nepomniachtchi",
+  "time_control": "Blitz",
+  "source": "chesscom",
+  "games": 5000,
+  "description": "Online blitz games by Nepomniachtchi (chess.com account: lachesisQ). Filtered by time control (blitz). Most recent games first. 5,000 games."
+}

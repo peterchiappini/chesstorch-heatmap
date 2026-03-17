@@ -1,0 +1,7 @@
+{
+  "player": "Kasparov",
+  "time_control": "All",
+  "source": "pgnmentor",
+  "games": 2128,
+  "description": "OTB tournament games by Kasparov, sourced from pgnmentor.com. Includes all recorded tournament games (classical, rapid, and blitz events). 2,128 games total."
+}

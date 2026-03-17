@@ -1,0 +1,7 @@
+{
+  "player": "Spassky",
+  "time_control": "All",
+  "source": "pgnmentor",
+  "games": 2231,
+  "description": "OTB tournament games by Spassky, sourced from pgnmentor.com. Includes all recorded tournament games (classical, rapid, and blitz events). 2,231 games total."
+}

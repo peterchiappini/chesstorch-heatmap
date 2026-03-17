@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+data/*.pgn
+data/*.pt
+data/gm/
+*.pyc
+.lichess-token
+.dockerignore
+cache_datasets.py
+download_data.py
+train.py
+test.pgn
+master_games.pgn
+.DS_Store

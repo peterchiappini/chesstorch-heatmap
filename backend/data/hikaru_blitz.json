@@ -1,0 +1,7 @@
+{
+  "player": "Nakamura",
+  "time_control": "Blitz",
+  "source": "chesscom",
+  "games": 5000,
+  "description": "Online blitz games by Nakamura (chess.com account: Hikaru). Filtered by time control (blitz). Most recent games first. 5,000 games."
+}

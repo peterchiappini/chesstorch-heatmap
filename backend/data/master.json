@@ -1,0 +1,33 @@
+{
+  "dataset": "master",
+  "games": 10000,
+  "sampled_from": 10000,
+  "source": "pgnmentor.com",
+  "players": [
+    "Carlsen",
+    "Nakamura",
+    "Firouzja",
+    "Nepomniachtchi",
+    "Caruana",
+    "Aronian",
+    "Ding Liren",
+    "Giri",
+    "Topalov",
+    "Ivanchuk",
+    "Kasparov",
+    "Karpov",
+    "Fischer",
+    "Tal",
+    "Spassky",
+    "Petrosian",
+    "Botvinnik",
+    "Smyslov",
+    "Kramnik",
+    "Anand",
+    "Capablanca",
+    "Alekhine",
+    "Morphy",
+    "Euwe"
+  ],
+  "description": "Combined GM dataset: 10,000 games randomly sampled from 24 Grandmasters (Carlsen, Nakamura, Firouzja, Nepomniachtchi, Caruana, and 19 more). Sourced from pgnmentor.com. Includes OTB tournament games across all time controls."
+}

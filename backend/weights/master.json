@@ -1,0 +1,9 @@
+{
+  "games": 10000,
+  "epochs": 20,
+  "final_loss": 1.8489,
+  "final_accuracy": 0.6253,
+  "positions": 879131,
+  "batch_size": 32,
+  "lr": 0.001
+}
