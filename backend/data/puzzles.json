@@ -1,0 +1,9 @@
+{
+  "player": "Tactical Puzzles",
+  "time_control": "Puzzle",
+  "source": "lichess_puzzles",
+  "games": 10000,
+  "rating_range": "1000\u20132500",
+  "themes": [],
+  "description": "10,000 Lichess tactical puzzles (rating 1000\u20132500). Each position has a known best move sequence. Trains the model to find forcing tactical moves."
+}

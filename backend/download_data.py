@@ -561,6 +561,160 @@ def list_personalities() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════
+#  PUZZLES: Lichess tactical puzzle database
+# ═══════════════════════════════════════════════════════════════════
+
+def download_puzzles(
+    output_dir: str = DATA_DIR,
+    csv_path: str | None = None,
+    max_puzzles: int = 10_000,
+    min_rating: int = 1000,
+    max_rating: int = 2500,
+    themes: list[str] | None = None,
+) -> None:
+    """Convert the Lichess puzzle database CSV to a PGN file for training.
+
+    The Lichess puzzle CSV can be downloaded from:
+        https://database.lichess.org/#puzzles  (lichess_db_puzzle.csv.zst)
+
+    Decompress it first with:
+        zstd -d lichess_db_puzzle.csv.zst
+
+    CSV columns: PuzzleId, FEN, Moves, Rating, RatingDeviation, Popularity,
+                 NbPlays, Themes, GameUrl, OpeningTags
+
+    The FEN is the board position BEFORE the opponent's forcing move.
+    Moves[0] = opponent's move (apply to reach puzzle position).
+    Moves[1:] = solution moves (what the model should learn to play).
+    """
+    import chess
+    import chess.pgn
+    import csv as csv_mod
+
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, "puzzles.pgn")
+
+    if csv_path is None:
+        # Try to auto-detect a puzzle CSV in the data dir
+        for fname in os.listdir(output_dir):
+            if "puzzle" in fname.lower() and fname.endswith(".csv"):
+                csv_path = os.path.join(output_dir, fname)
+                print(f"Found puzzle CSV: {csv_path}")
+                break
+
+    if csv_path is None or not os.path.exists(csv_path):
+        print("No puzzle CSV found.")
+        print()
+        print("Download the Lichess puzzle database from:")
+        print("  https://database.lichess.org/#puzzles")
+        print()
+        print("Decompress it:")
+        print("  zstd -d lichess_db_puzzle.csv.zst")
+        print()
+        print("Then run:")
+        print(f"  python download_data.py puzzles --csv /path/to/lichess_db_puzzle.csv")
+        return
+
+    print(f"Reading puzzles from: {csv_path}")
+    if min_rating or max_rating:
+        print(f"  Rating filter: {min_rating}–{max_rating}")
+    if themes:
+        print(f"  Theme filter: {', '.join(themes)}")
+
+    written = 0
+    skipped = 0
+
+    with open(csv_path, newline="", encoding="utf-8") as f_in, \
+         open(output_path, "w") as f_out:
+
+        reader = csv_mod.DictReader(f_in)
+        for row in reader:
+            if written >= max_puzzles:
+                break
+
+            try:
+                rating = int(row["Rating"])
+            except (ValueError, KeyError):
+                skipped += 1
+                continue
+            if rating < min_rating or rating > max_rating:
+                skipped += 1
+                continue
+
+            if themes:
+                row_themes = set(row.get("Themes", "").split())
+                if not row_themes.intersection(themes):
+                    skipped += 1
+                    continue
+
+            puzzle_id = row.get("PuzzleId", str(written))
+            fen = row.get("FEN", "")
+            moves_uci = row.get("Moves", "").split()
+
+            # Need at least the opponent's setup move + one solution move
+            if len(moves_uci) < 2:
+                skipped += 1
+                continue
+
+            try:
+                # Apply the opponent's move to reach the actual puzzle position
+                setup_board = chess.Board(fen)
+                setup_board.push_uci(moves_uci[0])
+                puzzle_fen = setup_board.fen()
+
+                game = chess.pgn.Game()
+                game.headers["Event"] = f"Lichess Puzzle {puzzle_id}"
+                game.headers["Site"] = f"https://lichess.org/training/{puzzle_id}"
+                game.headers["SetUp"] = "1"
+                game.headers["FEN"] = puzzle_fen
+                game.headers["WhiteElo"] = str(rating)
+
+                node = game
+                board = chess.Board(puzzle_fen)
+                for uci in moves_uci[1:]:
+                    move = chess.Move.from_uci(uci)
+                    if move not in board.legal_moves:
+                        break
+                    node = node.add_variation(move)
+                    board.push(move)
+
+                if not game.next():
+                    skipped += 1
+                    continue
+
+                print(game, file=f_out, end="\n\n")
+                written += 1
+
+            except Exception:
+                skipped += 1
+                continue
+
+            if written % 1000 == 0:
+                print(f"  {written:,} puzzles written ...")
+
+    print(f"Done — {written:,} puzzles → {output_path} ({skipped:,} skipped)")
+
+    # Save metadata
+    meta = {
+        "player": "Tactical Puzzles",
+        "time_control": "Puzzle",
+        "source": "lichess_puzzles",
+        "games": written,
+        "rating_range": f"{min_rating}–{max_rating}",
+        "themes": themes or [],
+        "description": (
+            f"{written:,} Lichess tactical puzzles (rating {min_rating}–{max_rating}). "
+            f"Each position has a known best move sequence. "
+            f"Trains the model to find forcing tactical moves."
+        ),
+    }
+    meta_path = os.path.join(output_dir, "puzzles.json")
+    with open(meta_path, "w") as f:
+        json.dump(meta, f, indent=2)
+    print(f"Metadata saved to {meta_path}")
+
+
+# ═══════════════════════════════════════════════════════════════════
 #  CLI
 # ═══════════════════════════════════════════════════════════════════
 
@@ -585,6 +739,13 @@ if __name__ == "__main__":
     p_all.add_argument("--db", default=None)
     p_all.add_argument("--skip-download", action="store_true")
 
+    p_puzzles = sub.add_parser("puzzles", help="Lichess tactical puzzle database")
+    p_puzzles.add_argument("--csv", default=None, help="Path to lichess_db_puzzle.csv (decompressed)")
+    p_puzzles.add_argument("--max", type=int, default=10_000, dest="max_puzzles", help="Max puzzles to extract")
+    p_puzzles.add_argument("--min-rating", type=int, default=1000)
+    p_puzzles.add_argument("--max-rating", type=int, default=2500)
+    p_puzzles.add_argument("--themes", nargs="+", default=None, help="Filter by theme(s), e.g. --themes fork pin")
+
     sub.add_parser("list", help="Show available personalities")
 
     args = parser.parse_args()
@@ -598,5 +759,13 @@ if __name__ == "__main__":
     elif args.command == "all":
         download_master(args.target, skip_download=args.skip_download)
         download_beginner(args.target, db_path=args.db)
+    elif args.command == "puzzles":
+        download_puzzles(
+            csv_path=args.csv,
+            max_puzzles=args.max_puzzles,
+            min_rating=args.min_rating,
+            max_rating=args.max_rating,
+            themes=args.themes,
+        )
     elif args.command == "list":
         list_personalities()

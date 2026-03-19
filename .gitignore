@@ -33,6 +33,7 @@ backend/data/*.pt
 backend/data/gm/
 backend/weights/*.pth
 backend/master_games.pgn
+backend/*.csv
 
 # Keep JSON metadata in git
 !backend/data/*.json
