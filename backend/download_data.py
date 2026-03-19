@@ -561,6 +561,71 @@ def list_personalities() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════
+#  MIX: Combine and sample from multiple PGN sources
+# ═══════════════════════════════════════════════════════════════════
+
+def mix_datasets(
+    sources: list[tuple[str, int]],
+    output_name: str,
+    output_dir: str = DATA_DIR,
+) -> None:
+    """Sample from multiple PGN files and combine into a single training set.
+
+    Args:
+        sources: List of (pgn_key_or_path, max_games) pairs.
+        output_name: Output file stem (saved as data/<output_name>.pgn).
+    """
+    output_path = os.path.join(output_dir, f"{output_name}.pgn")
+    os.makedirs(output_dir, exist_ok=True)
+
+    all_blocks: list[str] = []
+    source_summary: list[str] = []
+
+    for key_or_path, count in sources:
+        # Resolve to a file path
+        if os.path.exists(key_or_path):
+            pgn_path = key_or_path
+        else:
+            pgn_path = os.path.join(DATA_DIR, f"{key_or_path}.pgn")
+
+        if not os.path.exists(pgn_path):
+            print(f"  WARNING: {pgn_path} not found, skipping")
+            continue
+
+        blocks = _collect_blocks(pgn_path)
+        if len(blocks) > count:
+            blocks = random.sample(blocks, count)
+
+        print(f"  {key_or_path}: {len(blocks):,} games sampled")
+        source_summary.append(f"{key_or_path}:{len(blocks)}")
+        all_blocks.extend(blocks)
+
+    random.shuffle(all_blocks)
+
+    with open(output_path, "w") as out:
+        for block in all_blocks:
+            out.write(block)
+            if not block.endswith("\n"):
+                out.write("\n")
+
+    print(f"Done — {len(all_blocks):,} total games → {output_path}")
+
+    meta = {
+        "player": output_name.replace("_", " ").title(),
+        "time_control": "Mixed",
+        "source": "mixed",
+        "games": len(all_blocks),
+        "sources": source_summary,
+        "description": (
+            f"Mixed dataset: {', '.join(source_summary)}. "
+            f"{len(all_blocks):,} total games, shuffled."
+        ),
+    }
+    with open(os.path.join(output_dir, f"{output_name}.json"), "w") as f:
+        json.dump(meta, f, indent=2)
+
+
+# ═══════════════════════════════════════════════════════════════════
 #  PUZZLES: Lichess tactical puzzle database
 # ═══════════════════════════════════════════════════════════════════
 
@@ -739,6 +804,10 @@ if __name__ == "__main__":
     p_all.add_argument("--db", default=None)
     p_all.add_argument("--skip-download", action="store_true")
 
+    p_mix = sub.add_parser("mix", help="Combine and sample from multiple PGN sources")
+    p_mix.add_argument("sources", nargs="+", help="Sources as key:count pairs, e.g. puzzles:10000 master:4000")
+    p_mix.add_argument("--output", required=True, help="Output name, e.g. puzzles_master")
+
     p_puzzles = sub.add_parser("puzzles", help="Lichess tactical puzzle database")
     p_puzzles.add_argument("--csv", default=None, help="Path to lichess_db_puzzle.csv (decompressed)")
     p_puzzles.add_argument("--max", type=int, default=10_000, dest="max_puzzles", help="Max puzzles to extract")
@@ -750,7 +819,13 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    if args.command == "master":
+    if args.command == "mix":
+        parsed = []
+        for s in args.sources:
+            key, _, count = s.partition(":")
+            parsed.append((key, int(count) if count else 99999))
+        mix_datasets(parsed, args.output)
+    elif args.command == "master":
         download_master(args.target, skip_download=args.skip_download)
     elif args.command == "beginner":
         download_beginner(args.target, db_path=args.db)

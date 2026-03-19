@@ -4,4 +4,11 @@ data/*.pgn
 data/*.pt
 data/gm/
 *.pyc
+*.csv
 .lichess-token
+cache_datasets.py
+download_data.py
+train.py
+test.pgn
+master_games.pgn
+.DS_Store

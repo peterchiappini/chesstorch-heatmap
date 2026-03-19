@@ -4,6 +4,7 @@ data/*.pgn
 data/*.pt
 data/gm/
 *.pyc
+*.csv
 .lichess-token
 .dockerignore
 cache_datasets.py

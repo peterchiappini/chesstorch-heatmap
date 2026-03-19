@@ -1,0 +1,11 @@
+{
+  "player": "Puzzles Master",
+  "time_control": "Mixed",
+  "source": "mixed",
+  "games": 14000,
+  "sources": [
+    "puzzles:10000",
+    "master:4000"
+  ],
+  "description": "Mixed dataset: puzzles:10000, master:4000. 14,000 total games, shuffled."
+}
