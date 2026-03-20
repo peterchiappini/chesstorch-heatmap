@@ -39,6 +39,10 @@ backend/*.csv
 !backend/data/*.json
 !backend/weights/*.json
 
+# Stockfish WebAssembly (too large for git — see README for setup)
+public/stockfish.js
+public/stockfish.wasm
+
 # Firebase
 .firebase/
 
