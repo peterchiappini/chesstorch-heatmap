@@ -10,16 +10,40 @@ export interface StockfishEval {
 
 const INITIAL: StockfishEval = { score: 0, mate: null, depth: 0, bestMove: '', thinking: false };
 
+/**
+ * Manages Stockfish evaluation using the lichess protocol pattern:
+ * - Never send `go` while a previous search is active
+ * - `bestmove` is the only signal that clears the active search
+ * - Rapid position changes collapse into a single queued search
+ */
 export function useStockfish(fen: string, targetDepth = 16): StockfishEval {
   const [evalState, setEvalState] = useState<StockfishEval>(INITIAL);
   const workerRef = useRef<Worker | null>(null);
   const readyRef = useRef(false);
-  // Track whose turn it is so we can flip the score to always be from White's POV
-  const sideRef = useRef<'w' | 'b'>('w');
-  // Count of pending `stop` commands whose bestmove responses should be ignored
-  const pendingStopsRef = useRef(0);
-  // Whether a search is currently running (so we know whether to send stop)
-  const searchingRef = useRef(false);
+
+  // Current active search (null = engine is idle)
+  const workRef = useRef<{ fen: string; stopRequested: boolean } | null>(null);
+  // Queued search to start after the current one finishes
+  const nextWorkRef = useRef<string | null>(null);
+
+  const swapWork = useCallback(() => {
+    const worker = workerRef.current;
+    if (!worker || !readyRef.current) return;
+    if (workRef.current) return; // wait for current search to finish
+
+    const nextFen = nextWorkRef.current;
+    nextWorkRef.current = null;
+
+    if (nextFen) {
+      const side = nextFen.split(' ')[1] === 'b' ? 'b' : 'w';
+      workRef.current = { fen: nextFen, stopRequested: false };
+      // Store side on the work object for score flipping
+      (workRef.current as any).side = side;
+      worker.postMessage(`position fen ${nextFen}`);
+      worker.postMessage(`go depth ${targetDepth}`);
+      setEvalState(prev => ({ ...prev, thinking: true }));
+    }
+  }, [targetDepth]);
 
   // Initialize the engine once
   useEffect(() => {
@@ -33,18 +57,19 @@ export function useStockfish(fen: string, targetDepth = 16): StockfishEval {
       }
       if (line === 'readyok') {
         readyRef.current = true;
+        swapWork();
       }
 
       // Parse "info depth X score cp Y" or "info depth X score mate Y"
-      if (line.startsWith('info depth')) {
+      // Suppress if the current search was asked to stop
+      if (line.startsWith('info depth') && workRef.current && !workRef.current.stopRequested) {
         const depthMatch = line.match(/depth (\d+)/);
         const cpMatch = line.match(/score cp (-?\d+)/);
         const mateMatch = line.match(/score mate (-?\d+)/);
 
         if (depthMatch) {
           const depth = parseInt(depthMatch[1]);
-          // Stockfish reports score relative to side-to-move; flip if black
-          const flip = sideRef.current === 'b' ? -1 : 1;
+          const flip = (workRef.current as any).side === 'b' ? -1 : 1;
           if (cpMatch) {
             setEvalState(prev => ({
               ...prev,
@@ -66,16 +91,15 @@ export function useStockfish(fen: string, targetDepth = 16): StockfishEval {
         }
       }
 
-      // Parse "bestmove e2e4"
+      // bestmove = search finished. Clear work and start the next queued search.
       if (line.startsWith('bestmove')) {
-        if (pendingStopsRef.current > 0) {
-          // This bestmove is from a stop command, not a completed search — ignore it
-          pendingStopsRef.current -= 1;
-        } else {
+        const wasActive = workRef.current && !workRef.current.stopRequested;
+        workRef.current = null;
+        if (wasActive) {
           const move = line.split(' ')[1] || '';
-          searchingRef.current = false;
           setEvalState(prev => ({ ...prev, bestMove: move, thinking: false }));
         }
+        swapWork();
       }
     };
 
@@ -86,47 +110,23 @@ export function useStockfish(fen: string, targetDepth = 16): StockfishEval {
       worker.postMessage('quit');
       worker.terminate();
     };
-  }, []);
+  }, [swapWork]);
 
-  // Evaluate whenever FEN changes
-  const pendingFen = useRef<string | null>(null);
+  // Queue a new evaluation: stop current search if needed, swap when ready
+  const compute = useCallback((fenStr: string) => {
+    nextWorkRef.current = fenStr;
 
-  const evaluate = useCallback((fenStr: string) => {
-    const worker = workerRef.current;
-    if (!worker || !readyRef.current) {
-      // Engine not ready yet — store for later
-      pendingFen.current = fenStr;
-      return;
+    if (workRef.current && !workRef.current.stopRequested) {
+      workRef.current.stopRequested = true;
+      workerRef.current?.postMessage('stop');
     }
 
-    pendingFen.current = null;
-    sideRef.current = fenStr.split(' ')[1] === 'b' ? 'b' : 'w';
-
-    if (searchingRef.current) {
-      // Cancel the active search; track that we'll receive a bestmove to ignore
-      pendingStopsRef.current += 1;
-      worker.postMessage('stop');
-    }
-
-    worker.postMessage(`position fen ${fenStr}`);
-    worker.postMessage(`go depth ${targetDepth}`);
-    searchingRef.current = true;
-    setEvalState(prev => ({ ...prev, thinking: true }));
-  }, [targetDepth]);
+    swapWork();
+  }, [swapWork]);
 
   useEffect(() => {
-    evaluate(fen);
-    // If engine wasn't ready, poll until it is
-    if (!readyRef.current) {
-      const interval = setInterval(() => {
-        if (readyRef.current && pendingFen.current) {
-          evaluate(pendingFen.current);
-          clearInterval(interval);
-        }
-      }, 200);
-      return () => clearInterval(interval);
-    }
-  }, [fen, evaluate]);
+    compute(fen);
+  }, [fen, compute]);
 
   return evalState;
 }

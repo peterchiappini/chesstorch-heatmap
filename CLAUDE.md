@@ -3,7 +3,7 @@ An interactive web application that visualizes the "attention" of a chess AI eng
 
 ## Architecture
 - **Frontend:** React, TypeScript, Vite. (To be deployed via Firebase Hosting).
-- **Backend:** Python, FastAPI, PyTorch. (To be containerized/deployed separately).
+- **Backend:** Python, FastAPI, PyTorch. (To be containerized/deployed separately). The Python backend is located in the /backend directory. Always use the virtual environment located at /backend/venv when running Python scripts or installing pip packages.
 - **Communication:** The frontend sends FEN strings (board states) via HTTP POST to the backend, which returns an array of 64 float values (Grad-CAM weights) representing square attention.
 
 ## Frontend Stack & Libraries

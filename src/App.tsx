@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Chess, type Square } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import type { Arrow, PieceDropHandlerArgs } from 'react-chessboard';
+import { useStockfish } from './useStockfish';
 import './App.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -70,9 +71,10 @@ const DEPTH_STEPS = [
 
 function buildSquareStyles(heatmap: number[]): Record<string, React.CSSProperties> {
   const styles: Record<string, React.CSSProperties> = {};
+  if (!heatmap || heatmap.length < 64) return styles;
   for (let i = 0; i < 64; i++) {
     styles[SQUARES[i]] = {
-      backgroundColor: `rgba(255, 0, 0, ${heatmap[i] * 0.7})`,
+      backgroundColor: `rgba(255, 0, 0, ${(heatmap[i] ?? 0) * 0.7})`,
       transition: 'background-color 0.2s ease',
     };
   }
@@ -97,13 +99,48 @@ function App() {
   const [topMoves, setTopMoves] = useState<TopMove[]>([]);
   const [gameOver, setGameOver] = useState<string | null>(null);
   const [gameResult, setGameResult] = useState<string | null>(null);
-  const [personality, setPersonality] = useState('carlsen');
+  const [whitePersonality, setWhitePersonality] = useState('carlsen');
+  const [blackPersonality, setBlackPersonality] = useState('tal');
   const [personalities, setPersonalities] = useState<Personality[]>([]);
   const [personalitySearch, setPersonalitySearch] = useState('');
-  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [activeDropdown, setActiveDropdown] = useState<'white' | 'black' | null>(null);
   const [showTechnical, setShowTechnical] = useState(false);
   const [neuralDepth, setNeuralDepth] = useState<'layer1' | 'layer2' | 'layer3' | 'layer4'>('layer3');
+  const [boardSize, setBoardSize] = useState(() => {
+    if (typeof window !== 'undefined' && window.innerWidth <= 960) {
+      return Math.floor(window.innerWidth - 32 - 24); // padding - eval bar
+    }
+    return 520;
+  });
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const isDragging = useRef(false);
+
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDragging.current = true;
+    const startX = e.clientX;
+    const startSize = boardSize;
+
+    const onMove = (ev: MouseEvent) => {
+      if (!isDragging.current) return;
+      const delta = ev.clientX - startX;
+      const newSize = Math.max(320, Math.min(800, startSize + delta));
+      setBoardSize(newSize);
+    };
+
+    const onUp = () => {
+      isDragging.current = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [boardSize]);
 
   const setArrowFromMove = useCallback((move: [string, string], color = 'rgba(0, 100, 255, 0.7)') => {
     setPredictedArrow([{ startSquare: move[0], endSquare: move[1], color }]);
@@ -124,29 +161,87 @@ function App() {
 
   // Fetch available personalities from the API
   useEffect(() => {
+    const stockfishEntry: Personality = {
+      key: 'stockfish',
+      label: 'Stockfish 18',
+      player: 'Stockfish',
+      time_control: 'Engine',
+      source: 'wasm',
+      games: 0,
+      epochs: 0,
+      accuracy: 0,
+      loss: 0,
+      positions: 0,
+      description: 'Stockfish 18 running in your browser via WebAssembly. Searches ahead (unlike the CNN models) to find the objectively best move.',
+    };
     fetch(`${API_URL}/api/personalities`)
       .then(r => r.json())
       .then(data => {
-        if (data.personalities?.length) setPersonalities(data.personalities);
+        const list = data.personalities?.length ? data.personalities : [];
+        setPersonalities([stockfishEntry, ...list]);
       })
-      .catch(() => {});
+      .catch(() => setPersonalities([stockfishEntry]));
+  }, []);
+
+  // Derive active personality from whose turn it is
+  const currentTurn = game.turn(); // 'w' or 'b'
+  const personality = currentTurn === 'w' ? whitePersonality : blackPersonality;
+  const whitePersonalityObj = personalities.find(p => p.key === whitePersonality);
+  const blackPersonalityObj = personalities.find(p => p.key === blackPersonality);
+
+  // Auto-size board on mobile resize/rotation
+  useEffect(() => {
+    const onResize = () => {
+      if (window.innerWidth <= 960 && !isDragging.current) {
+        setBoardSize(Math.floor(window.innerWidth - 32 - 24));
+      }
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
   }, []);
 
   // Close dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false);
+        setActiveDropdown(null);
       }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  const isStockfish = personality === 'stockfish';
+
+  /** Get the right personality for a given FEN (based on whose turn it is). */
+  const personalityForFen = useCallback((fen: string) => {
+    const side = fen.split(' ')[1];
+    return side === 'b' ? blackPersonality : whitePersonality;
+  }, [whitePersonality, blackPersonality]);
+
+  /** Fetch heatmap if the personality for the given FEN is a CNN model, otherwise clear. */
+  const fetchForFen = useCallback((fen: string) => {
+    const p = personalityForFen(fen);
+    if (p === 'stockfish') {
+      setHeatmap(new Array(64).fill(0));
+      setTopMoves([]);
+      setPredictedArrow([]);
+      return;
+    }
+    fetchHeatmap(fen, p, neuralDepth).then(applyHeatmapResponse);
+  }, [personalityForFen, neuralDepth, applyHeatmapResponse]);
+
   // Fetch heatmap on mount and when personality or depth changes
   useEffect(() => {
+    if (isStockfish) {
+      // Clear CNN heatmap immediately, Stockfish arrow will appear when ready
+      setHeatmap(new Array(64).fill(0));
+      setTopMoves([]);
+      setPredictedArrow([]);
+      return;
+    }
     const fen = currentMoveIndex > 0 ? replayToMove(moveHistory, currentMoveIndex) : game.fen();
-    fetchHeatmap(fen, personality, neuralDepth).then(applyHeatmapResponse);
+    fetchForFen(fen);
   }, [personality, neuralDepth]);
 
   const filteredPersonalities = personalities.filter(p => {
@@ -155,8 +250,6 @@ function App() {
       || p.time_control.toLowerCase().includes(q)
       || p.key.toLowerCase().includes(q);
   });
-
-  const selectedPersonality = personalities.find(p => p.key === personality);
   const [pgnInput, setPgnInput] = useState('');
   const [pgnError, setPgnError] = useState('');
   const [isReplayMode, setIsReplayMode] = useState(false);
@@ -169,15 +262,27 @@ function App() {
     [moveHistory, currentMoveIndex],
   );
 
+  const stockfish = useStockfish(currentFen);
+
+  // When Stockfish is the active personality, show its best move as a green arrow
+  useEffect(() => {
+    if (!isStockfish) return;
+    if (stockfish.bestMove && stockfish.bestMove.length >= 4) {
+      const from = stockfish.bestMove.slice(0, 2);
+      const to = stockfish.bestMove.slice(2, 4);
+      setArrowFromMove([from, to] as [string, string], 'rgba(0, 180, 80, 0.7)');
+    }
+  }, [isStockfish, stockfish.bestMove]);
+
   const goToMove = useCallback(
     (index: number) => {
       const clamped = Math.max(0, Math.min(index, moveHistory.length));
       setCurrentMoveIndex(clamped);
       const fen = replayToMove(moveHistory, clamped);
       setGame(new Chess(fen));
-      fetchHeatmap(fen, personality, neuralDepth).then(applyHeatmapResponse);
+      fetchForFen(fen);
     },
-    [moveHistory, personality, neuralDepth],
+    [moveHistory, fetchForFen],
   );
 
   const onPieceDrop = useCallback(
@@ -197,10 +302,10 @@ function App() {
       setMoveHistory(newHistory);
       setCurrentMoveIndex(newHistory.length);
       setGame(gameCopy);
-      fetchHeatmap(gameCopy.fen(), personality, neuralDepth).then(applyHeatmapResponse);
+      fetchForFen(gameCopy.fen());
       return true;
     },
-    [currentFen, moveHistory, currentMoveIndex, isReplayMode, personality, neuralDepth],
+    [currentFen, moveHistory, currentMoveIndex, isReplayMode, fetchForFen],
   );
 
   const playMove = useCallback(
@@ -213,9 +318,9 @@ function App() {
       setMoveHistory(newHistory);
       setCurrentMoveIndex(newHistory.length);
       setGame(gameCopy);
-      fetchHeatmap(gameCopy.fen(), personality, neuralDepth).then(applyHeatmapResponse);
+      fetchForFen(gameCopy.fen());
     },
-    [currentFen, moveHistory, currentMoveIndex, applyHeatmapResponse, personality, neuralDepth],
+    [currentFen, moveHistory, currentMoveIndex, applyHeatmapResponse, fetchForFen],
   );
 
   const handleLoadPgn = useCallback(() => {
@@ -239,7 +344,7 @@ function App() {
     setIsReplayMode(true);
     const startFen = new Chess().fen();
     setGame(new Chess(startFen));
-    fetchHeatmap(startFen, personality, neuralDepth).then(applyHeatmapResponse);
+    fetchForFen(startFen);
   }, [pgnInput, personality, neuralDepth]);
 
   const handleReset = useCallback(() => {
@@ -253,8 +358,8 @@ function App() {
     setGameOver(null);
     setGameResult(null);
     setTopMoves([]);
-    fetchHeatmap(fresh.fen(), personality, neuralDepth).then(applyHeatmapResponse);
-  }, [personality, neuralDepth]);
+    fetchForFen(fresh.fen());
+  }, [fetchForFen]);
 
   return (
     <div className="app">
@@ -263,94 +368,141 @@ function App() {
         <h1>Chess AI <span>Heatmap</span></h1>
       </header>
       <main className="app-main">
-        <div className="board-column">
+        <div className="board-column" style={{ '--board-size': `${boardSize}px` } as React.CSSProperties}>
           <div className="personality-picker" ref={dropdownRef}>
-            <button
-              className="personality-trigger"
-              onClick={() => setDropdownOpen(o => !o)}
-            >
-              <span className="personality-trigger-label">
-                {selectedPersonality?.label ?? personality}
-              </span>
-              <span className="personality-trigger-arrow">{dropdownOpen ? '\u25B2' : '\u25BC'}</span>
-            </button>
-            {dropdownOpen && (
-              <div className="personality-dropdown">
-                <input
-                  className="personality-search"
-                  type="text"
-                  placeholder="Search players..."
-                  value={personalitySearch}
-                  onChange={e => setPersonalitySearch(e.target.value)}
-                  autoFocus
-                />
-                <ul className="personality-list">
-                  {filteredPersonalities.length === 0 && (
-                    <li className="personality-empty">No matches</li>
-                  )}
-                  {filteredPersonalities.map(p => (
-                    <li
-                      key={p.key}
-                      className={`personality-option${p.key === personality ? ' active' : ''}`}
-                      onClick={() => {
-                        setPersonality(p.key);
-                        setDropdownOpen(false);
-                        setPersonalitySearch('');
-                      }}
+            <div className="side-pickers">
+              {(['white', 'black'] as const).map(side => {
+                const sideKey = side === 'white' ? whitePersonality : blackPersonality;
+                const setSide = side === 'white' ? setWhitePersonality : setBlackPersonality;
+                const sideObj = side === 'white' ? whitePersonalityObj : blackPersonalityObj;
+                const isOpen = activeDropdown === side;
+                const isActive = (side === 'white' && currentTurn === 'w') || (side === 'black' && currentTurn === 'b');
+
+                return (
+                  <div key={side} className={`side-picker ${isActive ? 'side-active' : ''}`}>
+                    <button
+                      className={`personality-trigger side-${side}`}
+                      onClick={() => setActiveDropdown(isOpen ? null : side)}
                     >
-                      <span className="personality-option-name">{p.player}</span>
-                      {p.time_control && (
-                        <span className={`personality-option-tc tc-${p.time_control.toLowerCase()}`}>
-                          {p.time_control}
+                      <span className={`side-badge side-badge-${side}`}>
+                        {side === 'white' ? 'W' : 'B'}
+                      </span>
+                      <span className="personality-trigger-label">
+                        {sideObj?.player ?? sideKey}
+                      </span>
+                      <span className="personality-trigger-arrow">{isOpen ? '\u25B2' : '\u25BC'}</span>
+                    </button>
+                    {isOpen && (
+                      <div className="personality-dropdown">
+                        <input
+                          className="personality-search"
+                          type="text"
+                          placeholder="Search players..."
+                          value={personalitySearch}
+                          onChange={e => setPersonalitySearch(e.target.value)}
+                          autoFocus
+                        />
+                        <ul className="personality-list">
+                          {filteredPersonalities.length === 0 && (
+                            <li className="personality-empty">No matches</li>
+                          )}
+                          {filteredPersonalities.map(p => (
+                            <li
+                              key={p.key}
+                              className={`personality-option${p.key === sideKey ? ' active' : ''}`}
+                              onClick={() => {
+                                setSide(p.key);
+                                setActiveDropdown(null);
+                                setPersonalitySearch('');
+                              }}
+                            >
+                              <span className="personality-option-name">{p.player}</span>
+                              {p.time_control && (
+                                <span className={`personality-option-tc tc-${p.time_control.toLowerCase()}`}>
+                                  {p.time_control}
+                                </span>
+                              )}
+                              {p.accuracy > 0 && (
+                                <span className="personality-option-acc">
+                                  {Math.round(p.accuracy * 100)}%
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="side-stats-row">
+              {([
+                { side: 'white' as const, obj: whitePersonalityObj, turn: 'w' },
+                { side: 'black' as const, obj: blackPersonalityObj, turn: 'b' },
+              ]).map(({ side, obj, turn }) => (
+                <div key={side} className={`side-stats ${currentTurn === turn ? 'side-stats-active' : ''}`}>
+                  <span className={`side-stats-label`}>
+                    <span className={`side-badge side-badge-${side} side-badge-sm`}>
+                      {side === 'white' ? 'W' : 'B'}
+                    </span>
+                    {obj?.player ?? side}
+                  </span>
+                  {obj && obj.positions > 0 && (
+                    <>
+                      <div className="side-stats-detail">
+                        <span>{obj.games.toLocaleString()} games</span>
+                        <span className="stat-sep" />
+                        <span className="stat-with-help">
+                          {Math.round(obj.accuracy * 100)}% acc
+                          <span className="help-icon">?<span className="help-tooltip">How often the model predicts the exact same move the GM played. Higher = better learned, but very high on small datasets may mean memorization.</span></span>
                         </span>
+                        {obj.accuracy > 0.85 && obj.games < 500 && (
+                          <span className="side-stats-warn" title="High accuracy on a small dataset usually means the model memorized specific positions rather than learning general patterns">memorized</span>
+                        )}
+                        {obj.accuracy > 0.85 && obj.games >= 500 && obj.games < 2000 && (
+                          <span className="side-stats-warn" title="The model may be partially overfit — it learned some real patterns but also memorized common positions">overfit</span>
+                        )}
+                      </div>
+                      {obj.description && (
+                        <p className="side-stats-desc">{obj.description}</p>
                       )}
-                      {p.accuracy > 0 && (
-                        <span className="personality-option-acc">
-                          {Math.round(p.accuracy * 100)}%
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {selectedPersonality && selectedPersonality.positions > 0 && (
-              <>
-                <div className="personality-stats">
-                  <span>{selectedPersonality.games.toLocaleString()} games</span>
-                  <span className="stat-sep" />
-                  <span>{selectedPersonality.positions.toLocaleString()} positions</span>
-                  <span className="stat-sep" />
-                  <span>{selectedPersonality.epochs} epochs</span>
-                  <span className="stat-sep" />
-                  <span>{Math.round(selectedPersonality.accuracy * 100)}% acc</span>
-                  <span className="stat-sep" />
-                  <span>loss {selectedPersonality.loss}</span>
+                    </>
+                  )}
                 </div>
-                {selectedPersonality.games > 0 && selectedPersonality.games < 500 && (
-                  <p className="overfit-warning">
-                    Small dataset — model may be overfit. Deeper layers may appear noisy.
-                  </p>
-                )}
-                {selectedPersonality.description && (
-                  <p className="personality-description">
-                    {selectedPersonality.description}
-                  </p>
-                )}
-              </>
-            )}
+              ))}
+            </div>
           </div>
-          <div className="board-container">
-            <Chessboard
-              options={{
-                position: currentFen,
-                onPieceDrop,
-                squareStyles,
-                arrows: predictedArrow,
-                boardOrientation,
-                allowDragging: !(isReplayMode && currentMoveIndex < moveHistory.length),
-              }}
-            />
+          <div className="board-with-eval">
+            <div className="eval-bar">
+              <div
+                className="eval-bar-white"
+                style={{ height: `${(() => {
+                  if (stockfish.mate !== null) return stockfish.mate > 0 ? 100 : 0;
+                  const clamped = Math.max(-500, Math.min(500, stockfish.score));
+                  return 50 + (clamped / 500) * 50;
+                })()}%` }}
+              />
+              <span className="eval-bar-label">
+                {stockfish.mate !== null
+                  ? `M${Math.abs(stockfish.mate)}`
+                  : `${stockfish.score >= 0 ? '+' : ''}${(stockfish.score / 100).toFixed(1)}`
+                }
+              </span>
+              <span className="eval-bar-depth">d{stockfish.depth}</span>
+            </div>
+            <div className="board-container">
+              <Chessboard
+                options={{
+                  position: currentFen,
+                  onPieceDrop,
+                  squareStyles,
+                  arrows: predictedArrow,
+                  boardOrientation,
+                  allowDragging: !(isReplayMode && currentMoveIndex < moveHistory.length),
+                }}
+              />
+            </div>
           </div>
 
           <div className="controls">
@@ -461,6 +613,8 @@ function App() {
           </div>
         </div>
 
+        <div className="resize-handle" onMouseDown={handleResizeStart} />
+
         <aside className="sidebar">
           <div className="sidebar-inner">
             {topMoves.length > 0 && (
@@ -534,12 +688,6 @@ function App() {
 
             <div className="sidebar-section">
               <h2>Inside the Brain</h2>
-
-              {selectedPersonality && selectedPersonality.games > 0 && (
-                <div className="training-badge">
-                  Trained on {selectedPersonality.games.toLocaleString()} {selectedPersonality.label} games
-                </div>
-              )}
 
               <ul className="brain-explainer">
                 <li>
